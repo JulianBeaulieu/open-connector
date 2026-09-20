@@ -222,6 +222,28 @@ describe("Listmonk executors", () => {
     });
   });
 
+  it("refuses to update a subscriber whose current lists cannot be read", async () => {
+    const { requests } = mockListmonk(() =>
+      Response.json({ data: { id: 4, email: "a@example.org", name: "A", status: "enabled", attribs: {} } }),
+    );
+
+    const result = await executors["listmonk.update_subscriber"]!({ subscriberId: 4, name: "B" }, executionContext());
+
+    // Sending an empty lists array would unsubscribe the subscriber from everything.
+    expect(result).toMatchObject({ ok: false, error: { code: "provider_error" } });
+    expect(requests.map((request) => request.method)).toEqual(["GET"]);
+  });
+
+  it("drops deleted lists and tolerates campaigns without media", async () => {
+    const { media: _media, ...withoutMedia } = draftCampaign;
+    const current = { ...withoutMedia, lists: [{ id: 3 }, { id: 0 }] };
+    const { requests } = mockListmonk(() => Response.json({ data: current }));
+
+    await executors["listmonk.update_campaign"]!({ campaignId: 7, subject: "New subject" }, executionContext());
+
+    expect(requests[1]!.body).toEqual({ lists: [3], media: [], subject: "New subject" });
+  });
+
   it("sends test emails with the stored campaign payload", async () => {
     const { requests } = mockListmonk((request) =>
       Response.json({ data: request.method === "GET" ? draftCampaign : true }),

@@ -81,7 +81,7 @@ export const listmonkActions: ActionDefinition[] = [
     inputSchema: s.actionInput(
       {
         query: s.string(
-          "An SQL WHERE expression over the subscribers table, for example subscribers.email LIKE '%@example.com' or subscribers.attribs->>'city' = 'Chicago'.",
+          "An SQL WHERE expression over the subscribers table, for example subscribers.email LIKE '%@example.com' or subscribers.attribs->>'city' = 'Chicago'. The API user's role needs the subscribers:sql_query permission whenever this is set.",
         ),
         listIds: listIdsSchema("Only subscribers in any of these list IDs."),
         subscriptionStatus: s.stringEnum("Filter by subscription status on the given listIds.", [
@@ -138,7 +138,7 @@ export const listmonkActions: ActionDefinition[] = [
     name: "update_subscriber",
     operationType: "write",
     description:
-      "Update one listmonk subscriber. Only the provided fields change: the current subscriber is read first and merged, so omitted fields and list subscriptions are preserved. Passing listIds replaces the subscriber's list subscriptions; attribs replaces all attributes.",
+      "Update one listmonk subscriber. Only the provided fields change: the current subscriber is read first and merged, so omitted fields and list subscriptions are preserved. Passing listIds replaces the subscriber's list subscriptions; attribs replaces all attributes. Unless preconfirmSubscriptions is true, an instance with opt-in confirmations enabled emails the subscriber again for every double opt-in list that is still unconfirmed.",
     providerPermissions: ["subscribers:manage"],
     inputSchema: s.actionInput(
       {
@@ -390,7 +390,7 @@ export const listmonkActions: ActionDefinition[] = [
     name: "update_campaign",
     operationType: "write",
     description:
-      "Update a draft, scheduled, or paused listmonk campaign. Only the provided fields change; target lists and attachments are preserved unless listIds is given. Pass sendAt null to clear a stored send time.",
+      "Update a draft, scheduled, or paused listmonk campaign. Only the provided fields change; target lists and attachments are preserved unless listIds is given. Pass sendAt null to clear a stored send time; listmonk rejects every update while the stored send time is in the past.",
     providerPermissions: ["campaigns:manage_all"],
     inputSchema: s.actionInput(
       {

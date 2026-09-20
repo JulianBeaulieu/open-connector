@@ -18,6 +18,7 @@ import {
   parseProviderJsonBodyText,
   providerInputError,
   ProviderRequestError,
+  providerResponseError,
   providerUserAgent,
   readProviderJsonBody,
   readProviderTextBody,
@@ -201,11 +202,30 @@ function requiredIdArray(value: unknown, fieldName: string): number[] {
   return value.map((item) => positiveInteger(item, fieldName, providerInputError));
 }
 
-/** Read `id` from `[{ id, ... }]` payloads such as a campaign's lists or media. */
-function readNestedIds(value: unknown): number[] {
-  return looseArray(value)
-    .map((item) => optionalInteger(optionalRecord(item)?.id))
-    .filter((id): id is number => id !== undefined && id > 0);
+/**
+ * Read `id` from `[{ id, ... }]` payloads such as a campaign's lists or media.
+ * The IDs are echoed back in replacement PUT bodies, so a payload that cannot
+ * be read fails instead of silently detaching every association. listmonk
+ * reports a deleted list as id 0, which is dropped.
+ */
+function readNestedIds(value: unknown, label: string): number[] {
+  if (!Array.isArray(value)) {
+    throw providerResponseError(`Listmonk ${label} must be an array`);
+  }
+  return value
+    .map((item) => {
+      const id = optionalInteger(optionalRecord(item)?.id);
+      if (id === undefined) {
+        throw providerResponseError(`Listmonk ${label} must contain objects with an integer id`);
+      }
+      return id;
+    })
+    .filter((id) => id > 0);
+}
+
+/** Campaign media is absent on releases that predate attachments. */
+function readCampaignMediaIds(campaign: Record<string, unknown>): number[] {
+  return campaign.media === undefined || campaign.media === null ? [] : readNestedIds(campaign.media, "campaign media");
 }
 
 function readSendAt(value: unknown, fieldName = "sendAt"): string {
@@ -263,8 +283,8 @@ async function updateCampaign(
   changes: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const body: Record<string, unknown> = {
-    lists: readNestedIds(current.lists),
-    media: readNestedIds(current.media),
+    lists: readNestedIds(current.lists, "campaign lists"),
+    media: readCampaignMediaIds(current),
     ...changes,
   };
   return recordOrEmpty(
@@ -342,7 +362,7 @@ export const listmonkActionHandlers: ProviderActionHandlerSubset<"listmonk", Lis
       email: optionalString(input.email) ?? optionalString(current.email),
       name: optionalString(input.name) ?? optionalString(current.name),
       status: optionalString(input.status) ?? optionalString(current.status),
-      lists: optionalIdArray(input.listIds, "listIds") ?? readNestedIds(current.lists),
+      lists: optionalIdArray(input.listIds, "listIds") ?? readNestedIds(current.lists, "subscriber lists"),
       attribs: optionalRecord(input.attribs) ?? optionalRecord(current.attribs) ?? {},
       preconfirm_subscriptions: optionalBoolean(input.preconfirmSubscriptions) ?? false,
     };
@@ -499,7 +519,7 @@ export const listmonkActionHandlers: ProviderActionHandlerSubset<"listmonk", Lis
       type: "regular",
       content_type: optionalString(input.contentType) ?? "richtext",
       body: optionalRawString(input.body) ?? "",
-      altbody: optionalString(input.altbody),
+      altbody: optionalRawString(input.altbody),
       template_id:
         input.templateId === undefined
           ? undefined
@@ -575,7 +595,7 @@ export const listmonkActionHandlers: ProviderActionHandlerSubset<"listmonk", Lis
       body: {
         name: current.name,
         subject: current.subject,
-        lists: readNestedIds(current.lists),
+        lists: readNestedIds(current.lists, "campaign lists"),
         from_email: current.from_email,
         content_type: current.content_type,
         body: current.body,
@@ -583,7 +603,7 @@ export const listmonkActionHandlers: ProviderActionHandlerSubset<"listmonk", Lis
         messenger: current.messenger,
         headers: current.headers,
         template_id: current.template_id,
-        media: readNestedIds(current.media),
+        media: readCampaignMediaIds(current),
         subscribers: emails,
       },
     });
